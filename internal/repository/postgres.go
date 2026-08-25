@@ -1,0 +1,86 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	orderv1 "storemesh-order-service/gen/storemesh/order/v1"
+)
+
+type Orders interface {
+	Insert(context.Context, *orderv1.Order) error
+	Find(context.Context, string) (*orderv1.Order, error)
+	Cancel(context.Context, string, time.Time) (*orderv1.Order, error)
+}
+
+type Postgres struct{ db *sql.DB }
+
+func Open(ctx context.Context, databaseURL string) (*Postgres, error) {
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	return &Postgres{db: db}, nil
+}
+
+func (p *Postgres) Close() error { return p.db.Close() }
+
+func (p *Postgres) Insert(ctx context.Context, order *orderv1.Order) error {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO orders (order_id, customer_id, total_minor, currency, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, order.OrderId, order.CustomerId, order.TotalMinor, order.Currency, order.Status, order.CreatedAt.AsTime(), order.UpdatedAt.AsTime())
+	if err != nil {
+		return fmt.Errorf("insert order: %w", err)
+	}
+	for i, line := range order.Lines {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO order_lines (order_id, line_number, product_id, quantity, unit_price_minor) VALUES ($1,$2,$3,$4,$5)`, order.OrderId, i, line.ProductId, line.Quantity, line.UnitPriceMinor); err != nil {
+			return fmt.Errorf("insert order line: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (p *Postgres) Find(ctx context.Context, id string) (*orderv1.Order, error) {
+	order := &orderv1.Order{}
+	var created, updated time.Time
+	err := p.db.QueryRowContext(ctx, `SELECT customer_id,total_minor,currency,status,created_at,updated_at FROM orders WHERE order_id=$1`, id).Scan(&order.CustomerId, &order.TotalMinor, &order.Currency, &order.Status, &created, &updated)
+	if err != nil {
+		return nil, err
+	}
+	order.OrderId, order.CreatedAt, order.UpdatedAt = id, timestamppb.New(created), timestamppb.New(updated)
+	rows, err := p.db.QueryContext(ctx, `SELECT product_id,quantity,unit_price_minor FROM order_lines WHERE order_id=$1 ORDER BY line_number`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		line := &orderv1.OrderLine{}
+		if err := rows.Scan(&line.ProductId, &line.Quantity, &line.UnitPriceMinor); err != nil {
+			return nil, err
+		}
+		order.Lines = append(order.Lines, line)
+	}
+	return order, rows.Err()
+}
+
+func (p *Postgres) Cancel(ctx context.Context, id string, at time.Time) (*orderv1.Order, error) {
+	result, err := p.db.ExecContext(ctx, `UPDATE orders SET status=$2, updated_at=$3 WHERE order_id=$1 AND status <> $2`, id, orderv1.OrderStatus_ORDER_STATUS_CANCELLED, at)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return p.Find(ctx, id)
+}
