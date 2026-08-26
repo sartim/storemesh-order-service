@@ -3,6 +3,7 @@ module storemesh-order-service
 go 1.26.6
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/sartim/storemesh-inventory-service v0.0.0-20260825220329-a33afa9d653e

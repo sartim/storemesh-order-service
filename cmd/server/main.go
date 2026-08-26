@@ -28,7 +28,18 @@ func main() {
 		defer store.Close()
 		productAddress, inventoryAddress := os.Getenv("PRODUCT_SERVICE_ADDRESS"), os.Getenv("INVENTORY_SERVICE_ADDRESS")
 		if productAddress != "" && inventoryAddress != "" {
-			productConn, err := grpc.Dial(productAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			productOptions := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+			if secret := os.Getenv("PRODUCT_JWT_SECRET"); secret != "" {
+				issuer, audience := os.Getenv("PRODUCT_JWT_ISSUER"), os.Getenv("PRODUCT_JWT_AUDIENCE")
+				if issuer == "" {
+					issuer = "storemesh-product-service"
+				}
+				if audience == "" {
+					audience = "storemesh-platform"
+				}
+				productOptions = append(productOptions, grpc.WithUnaryInterceptor(clients.UnaryJWTInterceptor(secret, issuer, audience)))
+			}
+			productConn, err := grpc.Dial(productAddress, productOptions...)
 			if err != nil {
 				log.Fatal(err)
 			}
