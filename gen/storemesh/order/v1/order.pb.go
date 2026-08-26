@@ -236,10 +236,11 @@ func (x *OrderLine) GetUnitPriceMinor() int64 {
 }
 
 type CreateOrderRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Order         *Order                 `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Order          *Order                 `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CreateOrderRequest) Reset() {
@@ -277,6 +278,13 @@ func (x *CreateOrderRequest) GetOrder() *Order {
 		return x.Order
 	}
 	return nil
+}
+
+func (x *CreateOrderRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
 }
 
 type CreateOrderResponse struct {
@@ -521,9 +529,10 @@ const file_storemesh_order_v1_order_proto_rawDesc = "" +
 	"\n" +
 	"product_id\x18\x01 \x01(\tR\tproductId\x12\x1a\n" +
 	"\bquantity\x18\x02 \x01(\x03R\bquantity\x12(\n" +
-	"\x10unit_price_minor\x18\x03 \x01(\x03R\x0eunitPriceMinor\"E\n" +
+	"\x10unit_price_minor\x18\x03 \x01(\x03R\x0eunitPriceMinor\"n\n" +
 	"\x12CreateOrderRequest\x12/\n" +
-	"\x05order\x18\x01 \x01(\v2\x19.storemesh.order.v1.OrderR\x05order\"F\n" +
+	"\x05order\x18\x01 \x01(\v2\x19.storemesh.order.v1.OrderR\x05order\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"F\n" +
 	"\x13CreateOrderResponse\x12/\n" +
 	"\x05order\x18\x01 \x01(\v2\x19.storemesh.order.v1.OrderR\x05order\",\n" +
 	"\x0fGetOrderRequest\x12\x19\n" +

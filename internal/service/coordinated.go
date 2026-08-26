@@ -43,6 +43,12 @@ func NewCoordinatedOrders(store repository.Orders, catalog ProductCatalog, inven
 }
 
 func (o *CoordinatedOrders) CreateOrder(ctx context.Context, req *orderv1.CreateOrderRequest) (*orderv1.CreateOrderResponse, error) {
+	if req != nil && req.GetIdempotencyKey() != "" {
+		key := req.GetIdempotencyKey()
+		if existing, lookupErr := o.store.FindByIdempotencyKey(ctx, key); lookupErr == nil {
+			return &orderv1.CreateOrderResponse{Order: existing}, nil
+		}
+	}
 	if req == nil || req.GetOrder() == nil || req.GetOrder().GetCustomerId() == "" || len(req.GetOrder().GetLines()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "customer and order lines are required")
 	}
@@ -79,7 +85,7 @@ func (o *CoordinatedOrders) CreateOrder(ctx context.Context, req *orderv1.Create
 	}
 	order.Currency = currency
 	order.CreatedAt, order.UpdatedAt = timestamppb.Now(), timestamppb.Now()
-	if err := o.store.Insert(ctx, order); err != nil {
+	if err := o.store.Insert(ctx, order, req.GetIdempotencyKey()); err != nil {
 		o.release(ctx, order.OrderId, reserved)
 		return nil, status.Errorf(codes.Internal, "persist order: %v", err)
 	}

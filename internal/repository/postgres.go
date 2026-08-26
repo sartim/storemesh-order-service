@@ -12,7 +12,8 @@ import (
 )
 
 type Orders interface {
-	Insert(context.Context, *orderv1.Order) error
+	Insert(context.Context, *orderv1.Order, string) error
+	FindByIdempotencyKey(context.Context, string) (*orderv1.Order, error)
 	Find(context.Context, string) (*orderv1.Order, error)
 	Cancel(context.Context, string, time.Time) (*orderv1.Order, error)
 }
@@ -33,13 +34,13 @@ func Open(ctx context.Context, databaseURL string) (*Postgres, error) {
 
 func (p *Postgres) Close() error { return p.db.Close() }
 
-func (p *Postgres) Insert(ctx context.Context, order *orderv1.Order) error {
+func (p *Postgres) Insert(ctx context.Context, order *orderv1.Order, idempotencyKey string) error {
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO orders (order_id, customer_id, total_minor, currency, status, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, order.OrderId, order.CustomerId, order.TotalMinor, order.Currency, order.Status, order.CreatedAt.AsTime(), order.UpdatedAt.AsTime())
+	_, err = tx.ExecContext(ctx, `INSERT INTO orders (order_id, customer_id, total_minor, currency, status, created_at, updated_at, idempotency_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, order.OrderId, order.CustomerId, order.TotalMinor, order.Currency, order.Status, order.CreatedAt.AsTime(), order.UpdatedAt.AsTime(), nullableKey(idempotencyKey))
 	if err != nil {
 		return fmt.Errorf("insert order: %w", err)
 	}
@@ -49,6 +50,21 @@ func (p *Postgres) Insert(ctx context.Context, order *orderv1.Order) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func (p *Postgres) FindByIdempotencyKey(ctx context.Context, key string) (*orderv1.Order, error) {
+	var id string
+	if err := p.db.QueryRowContext(ctx, `SELECT order_id FROM orders WHERE idempotency_key=$1`, key).Scan(&id); err != nil {
+		return nil, err
+	}
+	return p.Find(ctx, id)
+}
+
+func nullableKey(key string) any {
+	if key == "" {
+		return nil
+	}
+	return key
 }
 
 func (p *Postgres) Find(ctx context.Context, id string) (*orderv1.Order, error) {

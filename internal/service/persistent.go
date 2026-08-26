@@ -23,11 +23,17 @@ func NewPersistentOrders(store repository.Orders) *PersistentOrders {
 }
 
 func (o *PersistentOrders) CreateOrder(ctx context.Context, req *orderv1.CreateOrderRequest) (*orderv1.CreateOrderResponse, error) {
+	if req != nil && req.GetIdempotencyKey() != "" {
+		key := req.GetIdempotencyKey()
+		if existing, lookupErr := o.store.FindByIdempotencyKey(ctx, key); lookupErr == nil {
+			return &orderv1.CreateOrderResponse{Order: existing}, nil
+		}
+	}
 	order, err := prepare(req)
 	if err != nil {
 		return nil, err
 	}
-	if err := o.store.Insert(ctx, order); err != nil {
+	if err := o.store.Insert(ctx, order, req.GetIdempotencyKey()); err != nil {
 		return nil, status.Errorf(codes.Internal, "persist order: %v", err)
 	}
 	return &orderv1.CreateOrderResponse{Order: clone(order)}, nil

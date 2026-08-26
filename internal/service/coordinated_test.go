@@ -39,11 +39,38 @@ func (f *fakeInventory) Release(_ context.Context, product, reservation string, 
 	return nil
 }
 
-type fakeStore struct{ order *orderv1.Order }
+type fakeStore struct {
+	order *orderv1.Order
+	keys  map[string]*orderv1.Order
+}
 
-func (f *fakeStore) Insert(_ context.Context, order *orderv1.Order) error {
+func (f *fakeStore) Insert(_ context.Context, order *orderv1.Order, key string) error {
 	f.order = clone(order)
+	if key != "" {
+		if f.keys == nil {
+			f.keys = make(map[string]*orderv1.Order)
+		}
+		f.keys[key] = clone(order)
+	}
 	return nil
+}
+func (f *fakeStore) FindByIdempotencyKey(_ context.Context, key string) (*orderv1.Order, error) {
+	if order, ok := f.keys[key]; ok {
+		return clone(order), nil
+	}
+	return nil, errors.New("not found")
+}
+
+func TestCoordinatedOrdersReturnsExistingOrderForIdempotencyKey(t *testing.T) {
+	store, inventory := &fakeStore{}, &fakeInventory{}
+	service := NewCoordinatedOrders(store, fakeCatalog{"p1": {ID: "p1", PriceMinor: 1250, Currency: "USD", Active: true}}, inventory)
+	request := &orderv1.CreateOrderRequest{IdempotencyKey: "checkout-123", Order: &orderv1.Order{CustomerId: "customer", Lines: []*orderv1.OrderLine{{ProductId: "p1", Quantity: 1}}}}
+	first, err := service.CreateOrder(context.Background(), request)
+	require.NoError(t, err)
+	second, err := service.CreateOrder(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, first.Order.OrderId, second.Order.OrderId)
+	require.Len(t, inventory.reserved, 1)
 }
 func (f *fakeStore) Find(_ context.Context, id string) (*orderv1.Order, error) {
 	if f.order == nil || f.order.OrderId != id {
