@@ -78,6 +78,12 @@ func (f *fakeStore) Find(_ context.Context, id string) (*orderv1.Order, error) {
 	}
 	return clone(f.order), nil
 }
+func (f *fakeStore) List(_ context.Context, customerID string, status orderv1.OrderStatus, offset, limit int) ([]*orderv1.Order, int, error) {
+	if f.order == nil || (customerID != "" && f.order.CustomerId != customerID) || (status != orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED && f.order.Status != status) || offset > 0 {
+		return []*orderv1.Order{}, 0, nil
+	}
+	return []*orderv1.Order{clone(f.order)}, 1, nil
+}
 func (f *fakeStore) Cancel(_ context.Context, id string, at time.Time) (*orderv1.Order, error) {
 	if f.order == nil || f.order.OrderId != id {
 		return nil, errors.New("not found")

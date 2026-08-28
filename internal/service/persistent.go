@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,6 +49,22 @@ func (o *PersistentOrders) GetOrder(ctx context.Context, req *orderv1.GetOrderRe
 		return nil, status.Errorf(codes.Internal, "load order: %v", err)
 	}
 	return &orderv1.GetOrderResponse{Order: order}, nil
+}
+
+func (o *PersistentOrders) ListOrders(ctx context.Context, req *orderv1.ListOrdersRequest) (*orderv1.ListOrdersResponse, error) {
+	pageSize, offset, err := pageParameters(req)
+	if err != nil {
+		return nil, err
+	}
+	orders, total, err := o.store.List(ctx, req.GetCustomerId(), req.GetStatus(), offset, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list orders: %v", err)
+	}
+	next := ""
+	if offset+len(orders) < total {
+		next = strconv.Itoa(offset + len(orders))
+	}
+	return &orderv1.ListOrdersResponse{Orders: orders, NextPageToken: next}, nil
 }
 
 func (o *PersistentOrders) CancelOrder(ctx context.Context, req *orderv1.CancelOrderRequest) (*orderv1.CancelOrderResponse, error) {

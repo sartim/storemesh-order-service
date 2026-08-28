@@ -15,6 +15,7 @@ type Orders interface {
 	Insert(context.Context, *orderv1.Order, string) error
 	FindByIdempotencyKey(context.Context, string) (*orderv1.Order, error)
 	Find(context.Context, string) (*orderv1.Order, error)
+	List(context.Context, string, orderv1.OrderStatus, int, int) ([]*orderv1.Order, int, error)
 	Cancel(context.Context, string, time.Time) (*orderv1.Order, error)
 }
 
@@ -88,6 +89,40 @@ func (p *Postgres) Find(ctx context.Context, id string) (*orderv1.Order, error) 
 		order.Lines = append(order.Lines, line)
 	}
 	return order, rows.Err()
+}
+
+func (p *Postgres) List(ctx context.Context, customerID string, status orderv1.OrderStatus, offset, limit int) ([]*orderv1.Order, int, error) {
+	args := []any{}
+	where := "WHERE 1=1"
+	if customerID != "" {
+		args = append(args, customerID)
+		where += fmt.Sprintf(" AND customer_id=$%d", len(args))
+	}
+	if status != orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED {
+		args = append(args, status)
+		where += fmt.Sprintf(" AND status=$%d", len(args))
+	}
+	var total int
+	if err := p.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM orders "+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, limit, offset)
+	rows, err := p.db.QueryContext(ctx, "SELECT order_id,customer_id,total_minor,currency,status,created_at,updated_at FROM orders "+where+fmt.Sprintf(" ORDER BY created_at DESC, order_id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args)), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	orders := make([]*orderv1.Order, 0, limit)
+	for rows.Next() {
+		order := &orderv1.Order{}
+		var created, updated time.Time
+		if err := rows.Scan(&order.OrderId, &order.CustomerId, &order.TotalMinor, &order.Currency, &order.Status, &created, &updated); err != nil {
+			return nil, 0, err
+		}
+		order.CreatedAt, order.UpdatedAt = timestamppb.New(created), timestamppb.New(updated)
+		orders = append(orders, order)
+	}
+	return orders, total, rows.Err()
 }
 
 func (p *Postgres) Cancel(ctx context.Context, id string, at time.Time) (*orderv1.Order, error) {

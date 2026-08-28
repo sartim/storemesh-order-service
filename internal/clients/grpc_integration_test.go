@@ -55,6 +55,12 @@ func (s *integrationStore) FindByIdempotencyKey(context.Context, string) (*order
 	return nil, context.Canceled
 }
 func (s *integrationStore) Find(context.Context, string) (*orderv1.Order, error) { return s.order, nil }
+func (s *integrationStore) List(context.Context, string, orderv1.OrderStatus, int, int) ([]*orderv1.Order, int, error) {
+	if s.order == nil {
+		return nil, 0, nil
+	}
+	return []*orderv1.Order{s.order}, 1, nil
+}
 func (s *integrationStore) Cancel(context.Context, string, time.Time) (*orderv1.Order, error) {
 	return s.order, nil
 }
