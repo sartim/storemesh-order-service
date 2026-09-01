@@ -29,3 +29,8 @@ PostgreSQL migration is `migrations/003_carts.sql`; when `DATABASE_URL` is not
 configured, the service uses an in-memory cart store for local development.
 Do not treat a cart as an order: carts are excluded from order metrics until
 checkout creates an order.
+
+Order creation also writes an `OrderCreated` record to `event_outbox` in the
+same transaction as the order and its lines. A publisher/worker will later
+deliver pending outbox records to Kafka and mark them published; no service
+should publish directly before that worker exists.

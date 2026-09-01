@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	orderv1 "storemesh-order-service/gen/storemesh/order/v1"
 )
@@ -49,6 +51,14 @@ func (p *Postgres) Insert(ctx context.Context, order *orderv1.Order, idempotency
 		if _, err = tx.ExecContext(ctx, `INSERT INTO order_lines (order_id, line_number, product_id, quantity, unit_price_minor) VALUES ($1,$2,$3,$4,$5)`, order.OrderId, i, line.ProductId, line.Quantity, line.UnitPriceMinor); err != nil {
 			return fmt.Errorf("insert order line: %w", err)
 		}
+	}
+	payload, err := protojson.Marshal(order)
+	if err != nil {
+		return fmt.Errorf("marshal order event: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO event_outbox (event_id, aggregate_type, aggregate_id, event_type, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6)`, uuid.New(), "order", order.OrderId, "OrderCreated", payload, order.CreatedAt.AsTime())
+	if err != nil {
+		return fmt.Errorf("insert order event: %w", err)
 	}
 	return tx.Commit()
 }
