@@ -14,3 +14,16 @@ authorization interceptor is added.
 The initial PostgreSQL schema is available in `migrations/001_orders.sql`.
 Order lines preserve the product price snapshot used to calculate historical
 order totals.
+
+## Cart boundary
+
+The repository now contains the versioned `CartService` protobuf contract in
+`proto/storemesh/order/v1/cart.proto`. A cart is customer-owned and contains
+only product IDs and quantities; it is deliberately separate from `Order`, so
+cart contents do not appear in sales metrics or order history. The generated
+Go stubs are committed under `gen/storemesh/order/v1`.
+
+Persistent PostgreSQL storage, gRPC server registration, BFF REST routes, and
+cart-to-order checkout orchestration are the next implementation pieces. Do
+not treat the presence of the generated contract as evidence that cross-device
+cart synchronization is available yet.
