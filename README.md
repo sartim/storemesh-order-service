@@ -24,6 +24,8 @@ cart contents do not appear in sales metrics or order history. The generated
 Go stubs are committed under `gen/storemesh/order/v1`.
 
 Persistent PostgreSQL storage, gRPC server registration, BFF REST routes, and
-cart-to-order checkout orchestration are the next implementation pieces. Do
-not treat the presence of the generated contract as evidence that cross-device
-cart synchronization is available yet.
+cart-to-order checkout orchestration are being delivered incrementally. The
+PostgreSQL migration is `migrations/003_carts.sql`; when `DATABASE_URL` is not
+configured, the service uses an in-memory cart store for local development.
+Do not treat a cart as an order: carts are excluded from order metrics until
+checkout creates an order.

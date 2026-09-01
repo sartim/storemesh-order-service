@@ -135,3 +135,50 @@ func (p *Postgres) Cancel(ctx context.Context, id string, at time.Time) (*orderv
 	}
 	return p.Find(ctx, id)
 }
+
+func (p *Postgres) Get(ctx context.Context, customerID string) (*orderv1.Cart, error) {
+	cart := &orderv1.Cart{CustomerId: customerID}
+	rows, err := p.db.QueryContext(ctx, `SELECT product_id, quantity FROM cart_lines WHERE customer_id=$1 ORDER BY product_id`, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		line := &orderv1.CartLine{}
+		if err := rows.Scan(&line.ProductId, &line.Quantity); err != nil {
+			return nil, err
+		}
+		cart.Lines = append(cart.Lines, line)
+	}
+	return cart, rows.Err()
+}
+
+func (p *Postgres) Upsert(ctx context.Context, cart *orderv1.Cart) (*orderv1.Cart, error) {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO carts (customer_id) VALUES ($1) ON CONFLICT (customer_id) DO UPDATE SET updated_at=NOW()`, cart.CustomerId); err != nil {
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM cart_lines WHERE customer_id=$1`, cart.CustomerId); err != nil {
+		return nil, err
+	}
+	for _, line := range cart.Lines {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO cart_lines (customer_id, product_id, quantity) VALUES ($1,$2,$3)`, cart.CustomerId, line.ProductId, line.Quantity); err != nil {
+			return nil, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return p.Get(ctx, cart.CustomerId)
+}
+
+func (p *Postgres) Clear(ctx context.Context, customerID string) (*orderv1.Cart, error) {
+	if _, err := p.db.ExecContext(ctx, `DELETE FROM carts WHERE customer_id=$1`, customerID); err != nil {
+		return nil, err
+	}
+	return p.Get(ctx, customerID)
+}

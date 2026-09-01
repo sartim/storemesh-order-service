@@ -12,9 +12,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	orderv1 "storemesh-order-service/gen/storemesh/order/v1"
 	"storemesh-order-service/internal/clients"
+	"storemesh-order-service/internal/observability"
 	"storemesh-order-service/internal/repository"
 	"storemesh-order-service/internal/service"
-	"storemesh-order-service/internal/observability"
 )
 
 func main() {
@@ -30,6 +30,7 @@ func main() {
 			log.Fatal(err)
 		}
 		defer store.Close()
+		orderv1.RegisterCartServiceServer(server, service.NewCarts(store))
 		productAddress, inventoryAddress := os.Getenv("PRODUCT_SERVICE_ADDRESS"), os.Getenv("INVENTORY_SERVICE_ADDRESS")
 		if productAddress != "" && inventoryAddress != "" {
 			productOptions := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
@@ -59,6 +60,7 @@ func main() {
 		}
 	} else {
 		orderv1.RegisterOrderServiceServer(server, service.NewOrders())
+		orderv1.RegisterCartServiceServer(server, service.NewCarts(service.NewMemoryCarts()))
 	}
 	log.Println("order service listening on :50051")
 	if err := server.Serve(listener); err != nil {
