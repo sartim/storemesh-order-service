@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	orderv1 "storemesh-order-service/gen/storemesh/order/v1"
 )
@@ -122,7 +123,5 @@ func (o *Orders) CancelOrder(_ context.Context, req *orderv1.CancelOrderRequest)
 }
 
 func clone(order *orderv1.Order) *orderv1.Order {
-	copy := *order
-	copy.Lines = append([]*orderv1.OrderLine(nil), order.Lines...)
-	return &copy
+	return proto.Clone(order).(*orderv1.Order)
 }
