@@ -34,3 +34,9 @@ Order creation also writes an `OrderCreated` record to `event_outbox` in the
 same transaction as the order and its lines. A publisher/worker will later
 deliver pending outbox records to Kafka and mark them published; no service
 should publish directly before that worker exists.
+
+The publisher is `cmd/outbox-publisher`. It requires `DATABASE_URL` and a
+comma-separated `KAFKA_BROKERS` value, publishes order events to
+`storemesh.order.events`, and marks an event published only after Kafka
+acknowledges it. Run multiple workers only after adding leasing/claiming; the
+current local worker is intentionally single-instance.

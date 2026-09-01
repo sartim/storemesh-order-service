@@ -23,6 +23,12 @@ type Orders interface {
 
 type Postgres struct{ db *sql.DB }
 
+type OutboxEvent struct {
+	ID, AggregateType, AggregateID, EventType string
+	Payload                                   []byte
+	OccurredAt                                time.Time
+}
+
 func Open(ctx context.Context, databaseURL string) (*Postgres, error) {
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -36,6 +42,28 @@ func Open(ctx context.Context, databaseURL string) (*Postgres, error) {
 }
 
 func (p *Postgres) Close() error { return p.db.Close() }
+
+func (p *Postgres) PendingOutbox(ctx context.Context, limit int) ([]OutboxEvent, error) {
+	rows, err := p.db.QueryContext(ctx, `SELECT event_id, aggregate_type, aggregate_id, event_type, payload, occurred_at FROM event_outbox WHERE published_at IS NULL ORDER BY occurred_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []OutboxEvent
+	for rows.Next() {
+		var event OutboxEvent
+		if err := rows.Scan(&event.ID, &event.AggregateType, &event.AggregateID, &event.EventType, &event.Payload, &event.OccurredAt); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func (p *Postgres) MarkOutboxPublished(ctx context.Context, id string, at time.Time) error {
+	_, err := p.db.ExecContext(ctx, `UPDATE event_outbox SET published_at=$2 WHERE event_id=$1 AND published_at IS NULL`, id, at)
+	return err
+}
 
 func (p *Postgres) Insert(ctx context.Context, order *orderv1.Order, idempotencyKey string) error {
 	tx, err := p.db.BeginTx(ctx, nil)
