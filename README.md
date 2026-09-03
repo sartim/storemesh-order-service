@@ -48,3 +48,27 @@ creation fully functional with PostgreSQL alone while the outbox retains
 events for later delivery. Enable the publisher only when an external Kafka
 endpoint is available, by setting `kafka.enabled=true` and
 `kafka.brokers=<host:port>` in an environment-specific Helm release.
+
+## Run locally without Docker or Kubernetes
+
+Requires Go 1.26.6 or newer. Without `DATABASE_URL`, the service uses in-memory
+orders and carts and can be started without external dependencies:
+
+```sh
+go run ./cmd/server
+```
+
+Run it beside Product and Inventory as a local process by assigning unique
+ports:
+
+```sh
+GRPC_ADDR=:50052 METRICS_ADDR=:8083 \
+PRODUCT_SERVICE_ADDRESS=localhost:50051 \
+INVENTORY_SERVICE_ADDRESS=localhost:50053 \
+go run ./cmd/server
+```
+
+Coordinated persistent orders require `DATABASE_URL`, reachable Product and
+Inventory gRPC addresses, and the applicable migrations. The Kafka publisher
+is not started by `go run ./cmd/server`; run `go run ./cmd/outbox-publisher`
+only when an external broker is intentionally available.
