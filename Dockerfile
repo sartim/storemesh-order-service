@@ -6,10 +6,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/storemesh-order-service ./cmd/server
+    go build -trimpath -ldflags="-s -w" -o /out/storemesh-order-service ./cmd/server \
+    && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/storemesh-order-publisher ./cmd/outbox-publisher
 
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=builder /out/storemesh-order-service /app/storemesh-order-service
+COPY --from=builder /out/storemesh-order-publisher /app/storemesh-order-publisher
 USER nonroot:nonroot
 ENTRYPOINT ["/app/storemesh-order-service"]

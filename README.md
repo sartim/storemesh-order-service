@@ -40,3 +40,11 @@ comma-separated `KAFKA_BROKERS` value, publishes order events to
 `storemesh.order.events`, and marks an event published only after Kafka
 acknowledges it. Run multiple workers only after adding leasing/claiming; the
 current local worker is intentionally single-instance.
+
+The publisher is optional. The standard Order Service image includes the
+publisher binary, but the default Helm and Argo CD configuration does not run
+it and does not install Kafka or Confluent for Kubernetes. This keeps order
+creation fully functional with PostgreSQL alone while the outbox retains
+events for later delivery. Enable the publisher only when an external Kafka
+endpoint is available, by setting `kafka.enabled=true` and
+`kafka.brokers=<host:port>` in an environment-specific Helm release.
