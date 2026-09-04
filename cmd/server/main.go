@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	orderv1 "storemesh-order-service/gen/storemesh/order/v1"
+	"storemesh-order-service/internal/auth"
 	"storemesh-order-service/internal/clients"
 	"storemesh-order-service/internal/observability"
 	"storemesh-order-service/internal/repository"
@@ -23,7 +24,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	server := grpc.NewServer()
+	oidc, err := auth.NewValidator(os.Getenv("KEYCLOAK_ISSUER"), os.Getenv("KEYCLOAK_AUDIENCE"))
+	if err != nil {
+		log.Fatalf("configure Keycloak OIDC: %v", err)
+	}
+	server := grpc.NewServer(grpc.UnaryInterceptor(auth.UnaryInterceptor(oidc)))
 	go serveMetrics(env("METRICS_ADDR", ":8080"))
 	if databaseURL := os.Getenv("DATABASE_URL"); databaseURL != "" {
 		store, err := repository.Open(context.Background(), databaseURL)
