@@ -62,9 +62,9 @@ Run it beside Product and Inventory as a local process by assigning unique
 ports:
 
 ```sh
-GRPC_ADDR=:50052 METRICS_ADDR=:8083 \
+GRPC_ADDR=:50053 METRICS_ADDR=:8083 \
 PRODUCT_SERVICE_ADDRESS=localhost:50051 \
-INVENTORY_SERVICE_ADDRESS=localhost:50053 \
+INVENTORY_SERVICE_ADDRESS=localhost:50052 \
 go run ./cmd/server
 ```
 
