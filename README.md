@@ -52,7 +52,8 @@ endpoint is available, by setting `kafka.enabled=true` and
 ## Run locally without Docker or Kubernetes
 
 Requires Go 1.26.6 or newer. Without `DATABASE_URL`, the service uses in-memory
-orders and carts and can be started without external dependencies:
+orders and carts and can be started without external dependencies. Run the
+process from this repository:
 
 ```sh
 go run ./cmd/server
