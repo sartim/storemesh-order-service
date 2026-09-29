@@ -60,9 +60,64 @@ func (p *Postgres) PendingOutbox(ctx context.Context, limit int) ([]OutboxEvent,
 	return events, rows.Err()
 }
 
-func (p *Postgres) MarkOutboxPublished(ctx context.Context, id string, at time.Time) error {
-	_, err := p.db.ExecContext(ctx, `UPDATE event_outbox SET published_at=$2 WHERE event_id=$1 AND published_at IS NULL`, id, at)
-	return err
+// ClaimPendingOutbox leases unpublished events to one worker. An expired lease
+// can be claimed again after a worker crash, so delivery remains at-least-once.
+func (p *Postgres) ClaimPendingOutbox(ctx context.Context, limit int, workerID string, lease time.Duration) ([]OutboxEvent, error) {
+	if limit <= 0 || workerID == "" || lease <= 0 {
+		return nil, fmt.Errorf("invalid outbox claim parameters")
+	}
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `
+		WITH candidates AS (
+			SELECT event_id
+			FROM event_outbox
+			WHERE published_at IS NULL
+			  AND (claimed_until IS NULL OR claimed_until < NOW())
+			ORDER BY occurred_at, event_id
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE event_outbox AS event
+		SET claimed_by=$2, claimed_until=NOW() + ($3 * INTERVAL '1 second')
+		FROM candidates
+		WHERE event.event_id=candidates.event_id
+		RETURNING event.event_id, event.aggregate_type, event.aggregate_id,
+		          event.event_type, event.payload, event.occurred_at`,
+		limit, workerID, int64(lease/time.Second))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []OutboxEvent
+	for rows.Next() {
+		var event OutboxEvent
+		if err := rows.Scan(&event.ID, &event.AggregateType, &event.AggregateID, &event.EventType, &event.Payload, &event.OccurredAt); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (p *Postgres) MarkOutboxPublished(ctx context.Context, id, workerID string, at time.Time) error {
+	result, err := p.db.ExecContext(ctx, `UPDATE event_outbox SET published_at=$3, claimed_by=NULL, claimed_until=NULL WHERE event_id=$1 AND claimed_by=$2 AND published_at IS NULL`, id, workerID, at)
+	if err != nil {
+		return err
+	}
+	if count, _ := result.RowsAffected(); count != 1 {
+		return fmt.Errorf("outbox event %s is no longer leased by %s", id, workerID)
+	}
+	return nil
 }
 
 func (p *Postgres) Insert(ctx context.Context, order *orderv1.Order, idempotencyKey string) error {

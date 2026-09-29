@@ -24,8 +24,17 @@ func main() {
 	writer := &kafka.Writer{Addr: kafka.TCP(strings.Split(brokers, ",")...), Balancer: &kafka.Hash{}, BatchTimeout: 100 * time.Millisecond}
 	defer writer.Close()
 	ctx := context.Background()
+	workerID := os.Getenv("OUTBOX_WORKER_ID")
+	if workerID == "" {
+		host, err := os.Hostname()
+		if err != nil {
+			log.Fatal(err)
+		}
+		workerID = host
+	}
+	const lease = 30 * time.Second
 	for {
-		events, err := store.PendingOutbox(ctx, 100)
+		events, err := store.ClaimPendingOutbox(ctx, 100, workerID, lease)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -36,7 +45,7 @@ func main() {
 				log.Printf("publish %s: %v", event.ID, err)
 				continue
 			}
-			if err := store.MarkOutboxPublished(ctx, event.ID, time.Now()); err != nil {
+			if err := store.MarkOutboxPublished(ctx, event.ID, workerID, time.Now()); err != nil {
 				log.Printf("mark %s: %v", event.ID, err)
 			}
 		}

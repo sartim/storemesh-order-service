@@ -38,8 +38,11 @@ should publish directly before that worker exists.
 The publisher is `cmd/outbox-publisher`. It requires `DATABASE_URL` and a
 comma-separated `KAFKA_BROKERS` value, publishes order events to
 `storemesh.order.events`, and marks an event published only after Kafka
-acknowledges it. Run multiple workers only after adding leasing/claiming; the
-current local worker is intentionally single-instance.
+acknowledges it. Each worker claims rows with a 30-second PostgreSQL lease
+using `FOR UPDATE SKIP LOCKED`; an expired lease can be reclaimed after a
+worker crash. Delivery remains at-least-once, so downstream consumers must be
+idempotent. Set `OUTBOX_WORKER_ID` to a stable unique value when running more
+than one worker; the hostname is used by default.
 
 The publisher is optional. The standard Order Service image includes the
 publisher binary, but the default Helm and Argo CD configuration does not run
