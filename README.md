@@ -35,6 +35,11 @@ same transaction as the order and its lines. A publisher/worker will later
 deliver pending outbox records to Kafka and mark them published; no service
 should publish directly before that worker exists.
 
+Customer cart replacements and clears use the same transactional outbox. They
+emit `CartUpdated` and `CartCleared` records to `storemesh.cart.events`; order
+events continue to use `storemesh.order.events`. This keeps cart changes out
+of order analytics while allowing a future cart projection to consume them.
+
 The publisher is `cmd/outbox-publisher`. It requires `DATABASE_URL` and a
 comma-separated `KAFKA_BROKERS` value, publishes order events to
 `storemesh.order.events`, and marks an event published only after Kafka

@@ -40,6 +40,9 @@ func main() {
 		}
 		for _, event := range events {
 			topic := "storemesh.order.events"
+			if event.AggregateType == "cart" {
+				topic = "storemesh.cart.events"
+			}
 			err = writer.WriteMessages(ctx, kafka.Message{Topic: topic, Key: []byte(event.AggregateID), Value: event.Payload, Headers: []kafka.Header{{Key: "event-type", Value: []byte(event.EventType)}, {Key: "event-id", Value: []byte(event.ID)}}})
 			if err != nil {
 				log.Printf("publish %s: %v", event.ID, err)

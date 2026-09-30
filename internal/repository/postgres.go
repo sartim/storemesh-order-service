@@ -263,6 +263,13 @@ func (p *Postgres) Upsert(ctx context.Context, cart *orderv1.Cart) (*orderv1.Car
 			return nil, err
 		}
 	}
+	payload, err := protojson.Marshal(cart)
+	if err != nil {
+		return nil, fmt.Errorf("marshal cart event: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO event_outbox (event_id, aggregate_type, aggregate_id, event_type, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,NOW())`, uuid.New(), "cart", cart.CustomerId, "CartUpdated", payload); err != nil {
+		return nil, fmt.Errorf("insert cart event: %w", err)
+	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -270,7 +277,22 @@ func (p *Postgres) Upsert(ctx context.Context, cart *orderv1.Cart) (*orderv1.Car
 }
 
 func (p *Postgres) Clear(ctx context.Context, customerID string) (*orderv1.Cart, error) {
-	if _, err := p.db.ExecContext(ctx, `DELETE FROM carts WHERE customer_id=$1`, customerID); err != nil {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM carts WHERE customer_id=$1`, customerID); err != nil {
+		return nil, err
+	}
+	payload, err := protojson.Marshal(&orderv1.Cart{CustomerId: customerID})
+	if err != nil {
+		return nil, fmt.Errorf("marshal cleared cart event: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO event_outbox (event_id, aggregate_type, aggregate_id, event_type, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,NOW())`, uuid.New(), "cart", customerID, "CartCleared", payload); err != nil {
+		return nil, fmt.Errorf("insert cleared cart event: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return p.Get(ctx, customerID)
