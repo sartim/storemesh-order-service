@@ -22,9 +22,12 @@ import (
 type Validator struct {
 	issuer, audience, jwksURL string
 	mu                        sync.RWMutex
+	refreshMu                 sync.Mutex
+	lastUnknownRefresh        time.Time
 	keys                      map[string]*rsa.PublicKey
 }
 type discovery struct {
+	Issuer  string `json:"issuer"`
 	JWKSURL string `json:"jwks_uri"`
 }
 type jwks struct {
@@ -41,6 +44,9 @@ func NewValidator(issuer, audience string) (*Validator, error) {
 	if err := getJSON(issuer+"/.well-known/openid-configuration", &d); err != nil {
 		return nil, err
 	}
+	if strings.TrimRight(d.Issuer, "/") != issuer || d.JWKSURL == "" {
+		return nil, fmt.Errorf("OIDC discovery issuer or JWKS URI does not match configuration")
+	}
 	v.jwksURL = d.JWKSURL
 	if err := v.refresh(); err != nil {
 		return nil, err
@@ -49,6 +55,22 @@ func NewValidator(issuer, audience string) (*Validator, error) {
 }
 
 func (v *Validator) refresh() error {
+	v.refreshMu.Lock()
+	defer v.refreshMu.Unlock()
+	return v.loadKeys()
+}
+
+func (v *Validator) refreshForUnknownKey() error {
+	v.refreshMu.Lock()
+	defer v.refreshMu.Unlock()
+	if time.Since(v.lastUnknownRefresh) < 5*time.Second {
+		return nil
+	}
+	v.lastUnknownRefresh = time.Now()
+	return v.loadKeys()
+}
+
+func (v *Validator) loadKeys() error {
 	var set jwks
 	if err := getJSON(v.jwksURL, &set); err != nil {
 		return err
@@ -88,7 +110,15 @@ func (v *Validator) Validate(raw string) error {
 		key := v.keys[kid]
 		v.mu.RUnlock()
 		if key == nil {
-			return nil, fmt.Errorf("unknown signing key")
+			if err := v.refreshForUnknownKey(); err != nil {
+				return nil, fmt.Errorf("refresh OIDC signing keys: %w", err)
+			}
+			v.mu.RLock()
+			key = v.keys[kid]
+			v.mu.RUnlock()
+			if key == nil {
+				return nil, fmt.Errorf("unknown signing key")
+			}
 		}
 		return key, nil
 	}, jwt.WithIssuer(v.issuer), jwt.WithAudience(v.audience), jwt.WithLeeway(30*time.Second))
@@ -119,7 +149,8 @@ func UnaryInterceptor(v *Validator) grpc.UnaryServerInterceptor {
 }
 
 func getJSON(url string, target any) error {
-	response, err := http.Get(url)
+	client := &http.Client{Timeout: 5 * time.Second}
+	response, err := client.Get(url)
 	if err != nil {
 		return err
 	}
