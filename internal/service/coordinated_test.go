@@ -7,6 +7,7 @@ import (
 	"time"
 
 	orderv1 "storemesh-order-service/gen/storemesh/order/v1"
+	auth "storemesh-order-service/internal/auth"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -20,6 +21,16 @@ func (f fakeCatalog) GetProduct(_ context.Context, id string) (ProductSnapshot, 
 		return ProductSnapshot{}, errors.New("not found")
 	}
 	return p, nil
+}
+
+func TestCoordinatedOrderRejectsCrossCustomerCreateBeforeReservation(t *testing.T) {
+	store, inventory := &fakeStore{}, &fakeInventory{}
+	service := NewCoordinatedOrders(store, fakeCatalog{"p1": {ID: "p1", PriceMinor: 1250, Currency: "USD", Active: true}}, inventory)
+	ctx := auth.WithIdentity(context.Background(), auth.Identity{Subject: "customer-1"})
+	_, err := service.CreateOrder(ctx, &orderv1.CreateOrderRequest{Order: &orderv1.Order{CustomerId: "customer-2", Lines: []*orderv1.OrderLine{{ProductId: "p1", Quantity: 1}}}})
+	require.Error(t, err)
+	require.Empty(t, inventory.reserved, "authorization must happen before inventory side effects")
+	require.Nil(t, store.order)
 }
 
 type fakeInventory struct {

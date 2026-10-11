@@ -44,9 +44,17 @@ func NewCoordinatedOrders(store repository.Orders, catalog ProductCatalog, inven
 }
 
 func (o *CoordinatedOrders) CreateOrder(ctx context.Context, req *orderv1.CreateOrderRequest) (*orderv1.CreateOrderResponse, error) {
+	if req != nil && req.GetOrder() != nil {
+		if err := requireCustomer(ctx, req.GetOrder().GetCustomerId()); err != nil {
+			return nil, err
+		}
+	}
 	if req != nil && req.GetIdempotencyKey() != "" {
 		key := req.GetIdempotencyKey()
 		if existing, lookupErr := o.store.FindByIdempotencyKey(ctx, key); lookupErr == nil {
+			if err := requireOrderOwner(ctx, existing.GetCustomerId()); err != nil {
+				return nil, err
+			}
 			return &orderv1.CreateOrderResponse{Order: existing}, nil
 		}
 	}
@@ -101,6 +109,9 @@ func (o *CoordinatedOrders) GetOrder(ctx context.Context, req *orderv1.GetOrderR
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "load order: %v", err)
 	}
+	if err := requireOrderOwner(ctx, order.GetCustomerId()); err != nil {
+		return nil, err
+	}
 	return &orderv1.GetOrderResponse{Order: order}, nil
 }
 
@@ -109,7 +120,11 @@ func (o *CoordinatedOrders) ListOrders(ctx context.Context, req *orderv1.ListOrd
 	if err != nil {
 		return nil, err
 	}
-	orders, total, err := o.store.List(ctx, req.GetCustomerId(), req.GetStatus(), offset, pageSize)
+	customerID, err := scopedCustomerID(ctx, req.GetCustomerId())
+	if err != nil {
+		return nil, err
+	}
+	orders, total, err := o.store.List(ctx, customerID, req.GetStatus(), offset, pageSize)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list orders: %v", err)
 	}
@@ -121,6 +136,16 @@ func (o *CoordinatedOrders) ListOrders(ctx context.Context, req *orderv1.ListOrd
 }
 
 func (o *CoordinatedOrders) CancelOrder(ctx context.Context, req *orderv1.CancelOrderRequest) (*orderv1.CancelOrderResponse, error) {
+	existing, findErr := o.store.Find(ctx, req.GetOrderId())
+	if findErr == sql.ErrNoRows {
+		return nil, status.Error(codes.NotFound, "order not found")
+	}
+	if findErr != nil {
+		return nil, status.Errorf(codes.Internal, "load order before cancellation: %v", findErr)
+	}
+	if err := requireOrderOwner(ctx, existing.GetCustomerId()); err != nil {
+		return nil, err
+	}
 	order, err := o.store.Cancel(ctx, req.GetOrderId(), timestamppb.Now().AsTime())
 	if err == sql.ErrNoRows {
 		return nil, status.Error(codes.NotFound, "order not found or already cancelled")

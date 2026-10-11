@@ -6,10 +6,13 @@ Inventory services but does not own catalog or stock data.
 
 The protobuf contract establishes order creation, retrieval, paginated listing,
 and cancellation. `ListOrders` supports optional customer/status filters and
-page-token pagination. Customer history should supply `customer_id`; an empty
-filter is intended for an authorized administrative caller. Authorization
-remains an edge/interceptor responsibility until the shared service
-authorization interceptor is added.
+page-token pagination. When Keycloak OIDC is configured, the gRPC interceptor
+propagates the verified token subject and realm `admin` role into request
+context. Customer order lists are scoped to that subject by default; attempts
+to supply another customer ID are denied. Create, get, and cancel operations
+enforce ownership in the service layer, and cross-customer order lookups return
+`NotFound` to avoid disclosing another customer's order. Only the realm `admin`
+role can perform broad order listing or access another customer's order.
 
 The initial PostgreSQL schema is available in `migrations/001_orders.sql`.
 Order lines preserve the product price snapshot used to calculate historical
@@ -27,6 +30,8 @@ Persistent PostgreSQL storage, gRPC server registration, BFF REST routes, and
 cart-to-order checkout orchestration are being delivered incrementally. The
 PostgreSQL migration is `migrations/003_carts.sql`; when `DATABASE_URL` is not
 configured, the service uses an in-memory cart store for local development.
+With Keycloak OIDC enabled, cart get/update/clear operations are restricted to
+the authenticated token subject, including for admin tokens.
 Do not treat a cart as an order: carts are excluded from order metrics until
 checkout creates an order.
 

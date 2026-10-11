@@ -26,6 +26,9 @@ func (c *Carts) GetCart(ctx context.Context, req *orderv1.GetCartRequest) (*orde
 	if req.GetCustomerId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
 	}
+	if err := requireCartCustomer(ctx, req.GetCustomerId()); err != nil {
+		return nil, err
+	}
 	cart, err := c.store.Get(ctx, req.GetCustomerId())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "load cart: %v", err)
@@ -35,6 +38,9 @@ func (c *Carts) GetCart(ctx context.Context, req *orderv1.GetCartRequest) (*orde
 func (c *Carts) UpsertCart(ctx context.Context, req *orderv1.UpsertCartRequest) (*orderv1.UpsertCartResponse, error) {
 	if req.GetCart() == nil || req.GetCart().GetCustomerId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
+	}
+	if err := requireCartCustomer(ctx, req.GetCart().GetCustomerId()); err != nil {
+		return nil, err
 	}
 	for _, line := range req.GetCart().GetLines() {
 		if line.GetProductId() == "" || line.GetQuantity() <= 0 {
@@ -50,6 +56,9 @@ func (c *Carts) UpsertCart(ctx context.Context, req *orderv1.UpsertCartRequest) 
 func (c *Carts) ClearCart(ctx context.Context, req *orderv1.ClearCartRequest) (*orderv1.ClearCartResponse, error) {
 	if req.GetCustomerId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
+	}
+	if err := requireCartCustomer(ctx, req.GetCustomerId()); err != nil {
+		return nil, err
 	}
 	cart, err := c.store.Clear(ctx, req.GetCustomerId())
 	if err != nil {

@@ -34,6 +34,29 @@ type jwks struct {
 	Keys []struct{ Kid, Kty, N, E string } `json:"keys"`
 }
 
+type Claims struct {
+	jwt.RegisteredClaims
+	RealmAccess struct {
+		Roles []string `json:"roles"`
+	} `json:"realm_access"`
+}
+
+type identityKey struct{}
+
+type Identity struct {
+	Subject string
+	Admin   bool
+}
+
+func WithIdentity(ctx context.Context, identity Identity) context.Context {
+	return context.WithValue(ctx, identityKey{}, identity)
+}
+
+func IdentityFromContext(ctx context.Context) (Identity, bool) {
+	identity, ok := ctx.Value(identityKey{}).(Identity)
+	return identity, ok
+}
+
 func NewValidator(issuer, audience string) (*Validator, error) {
 	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
 	if issuer == "" || audience == "" {
@@ -101,7 +124,13 @@ func (v *Validator) loadKeys() error {
 }
 
 func (v *Validator) Validate(raw string) error {
-	token, err := jwt.ParseWithClaims(raw, &jwt.RegisteredClaims{}, func(token *jwt.Token) (any, error) {
+	_, err := v.ValidateClaims(raw)
+	return err
+}
+
+func (v *Validator) ValidateClaims(raw string) (*Claims, error) {
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(raw, claims, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodRS256 {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
@@ -123,9 +152,9 @@ func (v *Validator) Validate(raw string) error {
 		return key, nil
 	}, jwt.WithIssuer(v.issuer), jwt.WithAudience(v.audience), jwt.WithLeeway(30*time.Second))
 	if err != nil || !token.Valid {
-		return fmt.Errorf("invalid OIDC token: %w", err)
+		return nil, fmt.Errorf("invalid OIDC token: %w", err)
 	}
-	return nil
+	return claims, nil
 }
 
 func UnaryInterceptor(v *Validator) grpc.UnaryServerInterceptor {
@@ -141,9 +170,21 @@ func UnaryInterceptor(v *Validator) grpc.UnaryServerInterceptor {
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
 			return nil, status.Error(codes.Unauthenticated, "bearer authorization is required")
 		}
-		if err := v.Validate(parts[1]); err != nil {
+		claims, err := v.ValidateClaims(parts[1])
+		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid bearer token")
 		}
+		if strings.TrimSpace(claims.Subject) == "" {
+			return nil, status.Error(codes.Unauthenticated, "token subject is required")
+		}
+		identity := Identity{Subject: claims.Subject}
+		for _, role := range claims.RealmAccess.Roles {
+			if strings.EqualFold(strings.TrimSpace(role), "admin") {
+				identity.Admin = true
+				break
+			}
+		}
+		ctx = WithIdentity(ctx, identity)
 		return handler(ctx, req)
 	}
 }
