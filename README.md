@@ -36,9 +36,9 @@ Do not treat a cart as an order: carts are excluded from order metrics until
 checkout creates an order.
 
 Order creation also writes an `OrderCreated` record to `event_outbox` in the
-same transaction as the order and its lines. A publisher/worker will later
-deliver pending outbox records to Kafka and mark them published; no service
-should publish directly before that worker exists.
+same transaction as the order and its lines. The optional publisher/worker
+delivers pending outbox records to Kafka and marks them published only after
+Kafka acknowledges them; no request handler publishes directly.
 
 Customer cart replacements and clears use the same transactional outbox. They
 emit `CartUpdated` and `CartCleared` records to `storemesh.cart.events`; order
